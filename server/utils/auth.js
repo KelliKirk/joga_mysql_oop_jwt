@@ -1,27 +1,63 @@
+const { verifyToken } = require('./jwt');
 const UserRoleModel = require('../models/userRole');
 
 class AuthMiddleware {
-    // Kontrollib, kas kasutaja on sisse logitud
+    // Kontrolli, kas kasutaja on sisse logitud (JWT token)
     static isAuthenticated(req, res, next) {
-         console.log('=== AUTH MIDDLEWARE DEBUG ===');
-         console.log('Session exists:', !!req.session);
-         console.log('Session:', req.session);
-         console.log('Session.user:', req.session.user);
-         console.log('Cookie header:', req.headers.cookie);
-         console.log('Session ID:', req.sessionID);
-         console.log('============================');
-        if (req.session && req.session.user) {
+        try {
+            // Võta token Authorization header'ist
+            const authHeader = req.headers.authorization;
+            
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                return res.status(401).json({ 
+                    error: 'Token puudub. Palun logi sisse.' 
+                });
+            }
+            
+            // Eraldame "Bearer " eest tokeni
+            const token = authHeader.substring(7);
+            
+            // Verifitseeri token
+            const decoded = verifyToken(token);
+            
+            // Lisa dekodeeritud andmed req.user külge
+            req.user = {
+                user_id: decoded.user_id,
+                username: decoded.username,
+                email: decoded.email,
+                is_admin: decoded.is_admin
+            };
+            
+            console.log('Authenticated user:', req.user);
+            
             return next();
+            
+        } catch (error) {
+            console.error('Auth error:', error);
+            
+            if (error.name === 'TokenExpiredError') {
+                return res.status(401).json({ 
+                    error: 'Token on aegunud. Palun logi uuesti sisse.' 
+                });
+            }
+            
+            if (error.name === 'JsonWebTokenError') {
+                return res.status(401).json({ 
+                    error: 'Vigane token. Palun logi uuesti sisse.' 
+                });
+            }
+            
+            return res.status(401).json({ 
+                error: 'Autentimine ebaõnnestus.' 
+            });
         }
-        return res.status(401).json({ 
-            error: 'Autentimine nõutud. Palun logi sisse.' 
-        });
     }
     
-    // Kontrollib, kas kasutajal on vajalik roll
+    // Kontrolli, kas kasutajal on vajalik roll
     static hasRole(roleName) {
         return async (req, res, next) => {
-            if (!req.session || !req.session.user) {
+            // Eeldame, et isAuthenticated on juba käivitatud
+            if (!req.user) {
                 return res.status(401).json({ 
                     error: 'Autentimine nõutud' 
                 });
@@ -29,7 +65,7 @@ class AuthMiddleware {
             
             try {
                 const hasRole = await UserRoleModel.hasRole(
-                    req.session.user.user_id, 
+                    req.user.user_id, 
                     roleName
                 );
                 
@@ -49,14 +85,27 @@ class AuthMiddleware {
         };
     }
     
-    // Kontrollib, kas kasutaja on admin
+    // Kontrolli, kas kasutaja on admin
     static isAdmin(req, res, next) {
+        // Eeldame, et isAuthenticated on juba käivitatud
+        if (!req.user) {
+            return res.status(401).json({ 
+                error: 'Autentimine nõutud' 
+            });
+        }
+        
+        // Kontrollime is_admin flag'i, mis on token'is
+        if (req.user.is_admin) {
+            return next();
+        }
+        
+        // Kui flag puudub, kontrollime andmebaasist
         return AuthMiddleware.hasRole('admin')(req, res, next);
     }
     
-    // Kontrollib, kas kasutaja on artikli omanik või admin
+    // Kontrolli, kas kasutaja on artikli omanik või admin
     static async isArticleOwnerOrAdmin(req, res, next) {
-        if (!req.session || !req.session.user) {
+        if (!req.user) {
             return res.status(401).json({ 
                 error: 'Autentimine nõutud' 
             });
@@ -74,13 +123,13 @@ class AuthMiddleware {
             }
             
             // Kontrolli, kas kasutaja on admin
-            const isAdmin = await UserRoleModel.hasRole(
-                req.session.user.user_id, 
+            const isAdmin = req.user.is_admin || await UserRoleModel.hasRole(
+                req.user.user_id, 
                 'admin'
             );
             
             // Kontrolli, kas kasutaja on artikli autor
-            const isOwner = article.author_id === req.session.user.user_id;
+            const isOwner = article.author_id === req.user.user_id;
             
             if (isAdmin || isOwner) {
                 return next();

@@ -26,7 +26,7 @@ class CommentController {
     async createComment(req, res) {
         try {
             // Kontrolli, kas kasutaja on sisse logitud
-            if (!req.session.user) {
+            if (!req.user) {
                 return res.status(401).json({ 
                     error: 'Pead olema sisse logitud, et kommenteerida' 
                 });
@@ -42,7 +42,7 @@ class CommentController {
             
             const commentData = {
                 article_id: article_id,
-                user_id: req.session.user.user_id,
+                user_id: req.user.user_id,
                 body: body,
                 parent_id: parent_id || null
             };

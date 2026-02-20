@@ -1,6 +1,6 @@
 const express = require('express');
 const CommentController = require('../controllers/comments');
-const AuthMiddleware = require('../middleware/auth');
+const AuthMiddleware = require('../utils/auth');  
 
 class CommentRouter {
     constructor() {
@@ -23,12 +23,14 @@ class CommentRouter {
         
         // Ainult admin saab kommentaare muuta
         this.router.put('/comment/edit/:id', 
+            AuthMiddleware.isAuthenticated,  
             AuthMiddleware.isAdmin,
             this.controller.updateComment
         );
         
         // Ainult admin saab kommentaare kustutada
         this.router.delete('/comment/delete/:id', 
+            AuthMiddleware.isAuthenticated,  
             AuthMiddleware.isAdmin,
             this.controller.deleteComment
         );
